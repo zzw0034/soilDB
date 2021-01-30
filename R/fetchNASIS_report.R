@@ -259,7 +259,7 @@
                           pedon_id,
                           hzdept,
                           hzdepb,
-                          rmHzErrors = TRUE,
+                          rmHzErrors = FALSE,
                           nullFragsAreZero = TRUE,
                           soilColorState = "moist"
 ) {

@@ -2,7 +2,7 @@
 
 # get NASIS site/pedon/horizon/diagnostic feature data
 .fetchNASIS_pedons <- function(SS = TRUE,
-                               rmHzErrors = TRUE,
+                               rmHzErrors = FALSE,
                                nullFragsAreZero = TRUE,
                                soilColorState = 'moist',
                                lab = FALSE,
@@ -68,7 +68,6 @@
 
   #  aqp uses data.table for efficient logic checking
   if (rmHzErrors) {
-
     # get overall validity (combination of 4 logic tests applied to each peiid)
     h.test <- aqp::checkHzDepthLogic(hz_data, c("hzdept","hzdepb"), "peiid", fast = TRUE)
 

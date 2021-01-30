@@ -3,7 +3,7 @@
 ## TODO: this will not ID horizons with no depths
 ## TODO: better error checking / reporting is needed: coiid, dmu id, component name
 .fetchNASIS_components <- function(SS = TRUE,
-                                   rmHzErrors = TRUE,
+                                   rmHzErrors = FALSE,
                                    fill = FALSE,
                                    stringsAsFactors = default.stringsAsFactors(),
                                    dsn = dsn) {

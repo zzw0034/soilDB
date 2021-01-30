@@ -2,7 +2,6 @@
 # from: pedons | components | lab | ???
 # ... : arguments passed on to helper functions
 
-
 #' Fetch commonly used site/pedon/horizon or component data from NASIS.
 #'
 #' Fetch commonly used site/pedon/horizon data or component from NASIS,
@@ -77,7 +76,7 @@
 fetchNASIS <- function(from='pedons',
                        url = NULL,
                        SS = TRUE,
-                       rmHzErrors = TRUE,
+                       rmHzErrors = FALSE,
                        nullFragsAreZero = TRUE,
                        soilColorState = 'moist',
                        lab = FALSE,
@@ -86,14 +85,6 @@ fetchNASIS <- function(from='pedons',
                        dsn = NULL) {
 
   res <- NULL
-
-  # TODO: do we need _View_1 tables in the sqlite table snapshot? Could be handy for
-  #       specialized selected sets crafted by NASIS/CVIR stuff; currently you are allowed
-  #       to specify the selected set for a SQLite database, and I suppose the convention
-  #       should be for those tables to be there, even if empty
-
-  # if (!is.null(dsn))
-  #   SS <- FALSE
 
   # sanity check
   if (!from %in% c('pedons', 'components', 'pedon_report')) {
@@ -131,5 +122,6 @@ fetchNASIS <- function(from='pedons',
   }
 
   return(res)
+
 
 }
