@@ -1,7 +1,7 @@
 # new tools for querying lab data from SDA Lab Data Mart
 # 
 
-#' Query data from Kellog Soil Survey Laboratory Data Mart via Soil Data Access
+#' Query data from Kellogg Soil Survey Laboratory Data Mart via Soil Data Access
 #' 
 #' LDM model diagram: 
 #' 
@@ -9,6 +9,7 @@
 #'
 #' @param x a vector of values to find in column specified by `what`
 #' @param what a single column name from either the `lab_combine_nasis_ncss` or the `lab_area` tables
+#' @param chunk.size number of pedons per chunk (for queries that may exceed `maxJsonLength`)
 #'
 #' @return a `SoilProfileCollection`
 #' @export
@@ -27,8 +28,8 @@
 #' # fetchLDM("CA630", what = "area_code")
 #' 
 #' @importFrom aqp `depths<-` `site<-`
-#' 
-fetchLDM <- function(x, what = "pedlabsampnum") {
+#' @importFrom data.table rbindlist
+fetchLDM <- function(x, what = "pedlabsampnum", chunk.size = 1000) {
   what <- match.arg(what, choices = c("pedon_key", "site_key", "pedlabsampnum", "pedoniid", "upedonid", 
                                       "labdatadescflag", "priority", "priority2", "samp_name", "samp_class_type", 
                                       "samp_classdate", "samp_classification_name", "samp_taxorder", 
@@ -69,20 +70,39 @@ fetchLDM <- function(x, what = "pedlabsampnum") {
               LEFT JOIN lab_area ON 
                   lab_combine_nasis_ncss.ssa_key = lab_area.area_key
             WHERE %s IN %s", # final JOIN to SSA (most detailed required portion of lab_area table)
-            what, soilDB::format_SQL_in_statement(x)))
-  
-  sites <- sites[,unique(colnames(sites))]
-  
-  # get data for lab layers within pedon_key returned
-  hz <- .get_lab_layer_by_pedon_key(sites$pedon_key)
-  hz <- hz[,unique(colnames(hz))]
-  hz$site_key <- NULL
-  
-  # build SoilProfileCollection
-  depths(hz) <- pedon_key ~ hzn_top + hzn_bot
-  site(hz) <- sites
-  
-  return(hz)
+            what, format_SQL_in_statement(x)))
+    
+  if (!inherits(sites, 'try-error')) {
+    
+    sites <- sites[,unique(colnames(sites))]
+    
+    # get data for lab layers within pedon_key returned
+    hz <- .get_lab_layer_by_pedon_key(sites$pedon_key)
+    
+    if (inherits(hz, 'try-error')) {
+      chunk.idx <- makeChunks(sites$pedon_key, chunk.size)
+      hz <- as.data.frame(data.table::rbindlist(lapply(unique(chunk.idx),
+                                                   function(i) {
+                                                     keys <- sites$pedon_key[chunk.idx == i]
+                                                     .get_lab_layer_by_pedon_key(keys)
+                                                   })))
+    }
+    
+    if (!is.null(hz) && nrow(hz) > 0) {  
+      hz <- hz[,unique(colnames(hz))]
+      hz$site_key <- NULL
+      
+      # build SoilProfileCollection
+      depths(hz) <- pedon_key ~ hzn_top + hzn_bot
+      site(hz) <- sites
+      
+      return(hz)
+    } else {
+      return(NULL)
+    }
+    
+  }
+  NULL
 }
 
 .get_lab_layer_by_pedon_key <- function(pedon_key) {
@@ -101,7 +121,7 @@ fetchLDM <- function(x, what = "pedlabsampnum") {
               LEFT JOIN lab_calculations_including_estimates_and_default_values ON 
                            lab_layer.labsampnum = lab_calculations_including_estimates_and_default_values.labsampnum
              WHERE pedon_key IN %s", 
-            soilDB::format_SQL_in_statement(pedon_key)))
+            format_SQL_in_statement(pedon_key)))
             # TODO: rosetta key does not have labsampnum, leave it out for now 
   
 }

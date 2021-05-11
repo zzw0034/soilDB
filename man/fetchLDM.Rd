@@ -2,14 +2,16 @@
 % Please edit documentation in R/fetchLDM.R
 \name{fetchLDM}
 \alias{fetchLDM}
-\title{Query data from Kellog Soil Survey Laboratory Data Mart via Soil Data Access}
+\title{Query data from Kellogg Soil Survey Laboratory Data Mart via Soil Data Access}
 \usage{
-fetchLDM(x, what = "pedlabsampnum")
+fetchLDM(x, what = "pedlabsampnum", chunk.size = 1000)
 }
 \arguments{
 \item{x}{a vector of values to find in column specified by \code{what}}
 
 \item{what}{a single column name from either the \code{lab_combine_nasis_ncss} or the \code{lab_area} tables}
+
+\item{chunk.size}{number of pedons per chunk (for queries that may exceed \code{maxJsonLength})}
 }
 \value{
 a \code{SoilProfileCollection}
