@@ -127,14 +127,20 @@ fetchLDM <- function(x,
     sites <- sites[,unique(colnames(sites))]
     
     # get data for lab layers within pedon_key returned
-    hz <- .get_lab_layer_by_pedon_key(con = con, sites[[bycol]])
+    hz <- .get_lab_layer_by_pedon_key(x = sites[[bycol]], 
+                                      con = con,
+                                      bycol = bycol,
+                                      tables = tables)
     
     .do_chunk <- function(con, size) {
       chunk.idx <- makeChunks(sites[[bycol]], size)
       as.data.frame(data.table::rbindlist(lapply(unique(chunk.idx),
                                                  function(i) {
                                                    keys <- sites[[bycol]][chunk.idx == i]
-                                                   res <- .get_lab_layer_by_pedon_key(con = con, keys)
+                                                   res <- .get_lab_layer_by_pedon_key(x = keys,
+                                                                                      con = con,
+                                                                                      bycol = bycol,
+                                                                                      tables = tables)
                                                    if (inherits(res, 'try-error'))
                                                      return(NULL)
                                                    res
@@ -143,7 +149,7 @@ fetchLDM <- function(x,
     
     ntry <- 0
     while ((inherits(hz, 'try-error') || is.null(hz)) && ntry < ntries) {
-      hz <- .do_chunk(con, chunk.size)
+      hz <- .do_chunk(con, size = chunk.size)
       # repeat as long as there is a try error/NULL, halving chunk.size with each iteration
       chunk.size <- pmax(floor(chunk.size / 2), 1)
       ntry <- ntry + 1
