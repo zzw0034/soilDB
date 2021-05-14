@@ -8,7 +8,9 @@
 #'  - https://jneme910.github.io/Lab_Data_Mart_Documentation/Documents/SDA_KSSL_Data_model.html
 #'
 #' @param x a vector of values to find in column specified by `what`
-#' @param what a single column name from either the `lab_combine_nasis_ncss` or the `lab_area` tables
+#' @param dsn data source name; either a path to a SQLite database, an open DBIConnection or (default) `NULL` (to use `soilDB::SDA_query`)
+#' @param what a single column name from tables: `lab_combine_nasis_ncss`, `lab_webmap`, `lab_site`, `lab_pedon` or `lab_area`
+#' @param bycol a single column name from `lab_layer` used for processing chunks; default: `"pedon_key"`
 #' @param tables a vector of table names; one or more of: `"lab_physical_properties"`, `"lab_mineralogy_glass_count"`, `"lab_chemical_properties"`, `"lab_major_and_trace_elements_and_oxides"`, `"lab_xray_and_thermal"`, `"lab_calculations_including_estimates_and_default_values"`, `"lab_rosetta_Key"`
 #' @param chunk.size number of pedons per chunk (for queries that may exceed `maxJsonLength`)
 #' @param ntries number of tries (times to halve `chunk.size`) before returning `NULL`; default `3`
@@ -41,7 +43,9 @@
 #' @importFrom aqp `depths<-` `site<-`
 #' @importFrom data.table rbindlist
 fetchLDM <- function(x,
+           dsn = NULL,
            what = "pedlabsampnum",
+           bycol = "pedon_key",
            tables = c(
              "lab_physical_properties",
              "lab_mineralogy_glass_count",
@@ -53,6 +57,19 @@ fetchLDM <- function(x,
              chunk.size = 1000,
              ntries = 3
            ) {
+  
+  # set up data source connection if needed
+  
+  if (inherits(dsn, 'DBIConnection')) {
+    # allow any existing DBI connection to be passed via dsn argument
+    con <- dsn
+  } else if(!is.null(dsn) && is.character(dsn)) {
+    # if it is a path to data source, try to connect with RSQLite
+    con <- RSQLite::dbConnect(RSQLite::SQLite(), dsn = dsn)
+  } else {
+    # otherwise we are using SDA_query
+    con <- NULL
+  }
              
   what <- match.arg(what, choices = c("pedon_key", "site_key", "pedlabsampnum", "pedoniid", "upedonid", 
                                       "labdatadescflag", "priority", "priority2", "samp_name", "samp_class_type", 
@@ -81,8 +98,8 @@ fetchLDM <- function(x,
   #       country, state, county, mlra, ssa, npark, nforest
   
   # get site/pedon/area information
-  sites <- SDA_query(sprintf(
-            "SELECT * FROM lab_combine_nasis_ncss 
+  site_query <- sprintf(
+    "SELECT * FROM lab_combine_nasis_ncss 
               LEFT JOIN lab_webmap ON 
                   lab_combine_nasis_ncss.pedon_key = lab_webmap.pedon_key
               LEFT JOIN lab_site ON 
@@ -92,7 +109,14 @@ fetchLDM <- function(x,
               LEFT JOIN lab_area ON 
                   lab_combine_nasis_ncss.ssa_key = lab_area.area_key
             WHERE %s IN %s", # final JOIN to SSA (most detailed required portion of lab_area table)
-            what, format_SQL_in_statement(x)))
+    what, format_SQL_in_statement(x))
+  
+  if(inherits(con, 'DBIConnection')) {
+    # query con using (modified) site_query
+    sites <- try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_", "", site_query)))
+  } else {
+    sites <- SDA_query(site_query)
+  }
     
   if (!inherits(sites, 'try-error')) {
     
@@ -101,12 +125,12 @@ fetchLDM <- function(x,
     # get data for lab layers within pedon_key returned
     hz <- .get_lab_layer_by_pedon_key(sites$pedon_key)
     
-    .do_chunk <- function(size) {
+    .do_chunk <- function(con,  size) {
       chunk.idx <- makeChunks(sites[[bycol]], size)
       as.data.frame(data.table::rbindlist(lapply(unique(chunk.idx),
                                                  function(i) {
                                                    keys <- sites[[bycol]][chunk.idx == i]
-                                                   res <- .get_lab_layer_by_pedon_key(keys)
+                                                   res <- .get_lab_layer_by_pedon_key(con = con, keys)
                                                    if (inherits(res, 'try-error'))
                                                      return(NULL)
                                                    res
@@ -115,7 +139,7 @@ fetchLDM <- function(x,
     
     ntry <- 0
     while ((inherits(hz, 'try-error') || is.null(hz)) && ntry < ntries) {
-      hz <- .do_chunk(chunk.size)
+      hz <- .do_chunk(con, chunk.size)
       # repeat as long as there is a try error/NULL, halving chunk.size with each iteration
       chunk.size <- pmax(floor(chunk.size / 2), 1)
       ntry <- ntry + 1
@@ -141,13 +165,18 @@ fetchLDM <- function(x,
   }
 }
 
-.get_lab_layer_by_pedon_key <- function(pedon_key, tables = c("lab_physical_properties",
-                                                              "lab_mineralogy_glass_count",
-                                                              "lab_chemical_properties",
-                                                              "lab_major_and_trace_elements_and_oxides",
-                                                              "lab_xray_and_thermal",
-                                                              "lab_calculations_including_estimates_and_default_values",
-                                                              "lab_rosetta_Key")) {
+.get_lab_layer_by_pedon_key <- function(x,
+                                        con = NULL,
+                                        bycol = "pedon_key",
+                                        tables = c(
+                                          "lab_physical_properties",
+                                          "lab_mineralogy_glass_count",
+                                          "lab_chemical_properties",
+                                          "lab_major_and_trace_elements_and_oxides",
+                                          "lab_xray_and_thermal",
+                                          "lab_calculations_including_estimates_and_default_values",
+                                          "lab_rosetta_Key"
+                                        )) {
   
   tables <- match.arg(tables, several.ok = TRUE,
     c("lab_physical_properties",
@@ -184,9 +213,15 @@ fetchLDM <- function(x,
   
   join_statements <- paste0(sapply(tables, function(x) tablejoincriteria[[x]]), collapse = "\n")
   
-  suppressWarnings(SDA_query(sprintf(
-            "SELECT * FROM lab_layer %s WHERE pedon_key IN %s", 
-            join_statements,
-            format_SQL_in_statement(pedon_key))))
+  layer_query <-  sprintf(
+    "SELECT * FROM lab_layer %s WHERE %s IN %s", 
+    join_statements,
+    bycol,
+    format_SQL_in_statement(x))
   
+  if(inherits(con, 'DBIConnection')) {
+    # query con using (modified) layer_query
+    return(try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_|_properties|_Key|_including_estimates_and_default_values|_and", "", layer_query))))
+  }
+  suppressWarnings(SDA_query(layer_query))
 }
