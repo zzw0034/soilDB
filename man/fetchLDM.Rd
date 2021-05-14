@@ -24,7 +24,7 @@ fetchLDM(
 \item{chunk.size}{number of pedons per chunk (for queries that may exceed \code{maxJsonLength})}
 }
 \value{
-a \code{SoilProfileCollection}
+a \code{SoilProfileCollection} for a successful query, a \code{try-error} if no site/pedon locations can be found or \code{NULL} for an empty \code{lab_layer} (within sites/pedons) result
 }
 \description{
 LDM model diagram:
@@ -34,7 +34,7 @@ LDM model diagram:
 \item https://jneme910.github.io/Lab_Data_Mart_Documentation/Documents/SDA_KSSL_Data_model.html
 }
 
-If the \code{chunk.size} parameter is set too large and the Soil Data Access request fails, the algorithm will attempt to halve the \code{chunk.size} argument up to 3 times, re-trying the query with a smaller chunk.
+If the \code{chunk.size} parameter is set too large and the Soil Data Access request fails, the algorithm will re-try the query with a smaller (halved) \code{chunk.size} argument. This will be attempted up to 3 times before returning \code{NULL}
 
 Currently the \code{lab_area} tables are joined only for the "Soil Survey Area" related records.
 }
