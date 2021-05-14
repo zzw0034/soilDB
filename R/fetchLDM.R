@@ -65,7 +65,7 @@ fetchLDM <- function(x,
     con <- dsn
   } else if(!is.null(dsn) && is.character(dsn)) {
     # if it is a path to data source, try to connect with RSQLite
-    con <- RSQLite::dbConnect(RSQLite::SQLite(), dsn = dsn)
+    con <- RSQLite::dbConnect(RSQLite::SQLite(), dsn)
   } else {
     # otherwise we are using SDA_query
     con <- NULL
@@ -106,15 +106,19 @@ fetchLDM <- function(x,
                   lab_combine_nasis_ncss.site_key = lab_site.site_key
               LEFT JOIN lab_pedon ON 
                   lab_combine_nasis_ncss.site_key = lab_pedon.site_key
-              LEFT JOIN lab_area ON 
-                  lab_combine_nasis_ncss.ssa_key = lab_area.area_key
-            WHERE %s IN %s", # final JOIN to SSA (most detailed required portion of lab_area table)
-    what, format_SQL_in_statement(x))
+            WHERE LOWER(%s) IN %s", 
+    what, format_SQL_in_statement(tolower(x)))
   
   if(inherits(con, 'DBIConnection')) {
     # query con using (modified) site_query
-    sites <- try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_", "", site_query)))
+    sites <- try(DBI::dbGetQuery(con, 
+                                 gsub("\\blab_|\\blab_combine_", "", 
+                                      gsub("lab_(site|pedon)", "nasis_\\1", site_query))))
   } else {
+    
+    # LEFT JOIN lab_area ON 
+    # lab_combine_nasis_ncss.ssa_key = lab_area.area_key
+    
     sites <- SDA_query(site_query)
   }
     
@@ -123,9 +127,9 @@ fetchLDM <- function(x,
     sites <- sites[,unique(colnames(sites))]
     
     # get data for lab layers within pedon_key returned
-    hz <- .get_lab_layer_by_pedon_key(sites$pedon_key)
+    hz <- .get_lab_layer_by_pedon_key(con = con, sites[[bycol]])
     
-    .do_chunk <- function(con,  size) {
+    .do_chunk <- function(con, size) {
       chunk.idx <- makeChunks(sites[[bycol]], size)
       as.data.frame(data.table::rbindlist(lapply(unique(chunk.idx),
                                                  function(i) {
@@ -143,6 +147,11 @@ fetchLDM <- function(x,
       # repeat as long as there is a try error/NULL, halving chunk.size with each iteration
       chunk.size <- pmax(floor(chunk.size / 2), 1)
       ntry <- ntry + 1
+    }
+    
+    # close connection (if we opened it)
+    if (is.character(dsn) && inherits(con, "DBIConnection")) {
+      DBI::dbDisconnect(con)
     }
     
     if (!is.null(hz) && nrow(hz) > 0) {  
@@ -221,7 +230,7 @@ fetchLDM <- function(x,
   
   if(inherits(con, 'DBIConnection')) {
     # query con using (modified) layer_query
-    return(try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_|_properties|_Key|_including_estimates_and_default_values|_and", "", layer_query))))
+    return(try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_|_properties|_Key|_including_estimates_and_default_values|_and|mineralogy_|_count", "", gsub("major_and_trace_elements_and_oxides","geochemical",layer_query)))))
   }
   suppressWarnings(SDA_query(layer_query))
 }
