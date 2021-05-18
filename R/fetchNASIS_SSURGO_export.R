@@ -1,20 +1,30 @@
-library(soilDB)
+#' Fetch data from a custom NASIS SSURGO Export (MS Access)
+#'
+#' To create a custom NASIS SSURGO Export, go to Exports Explorer menu and select "Add New Export..."
+#' 
+#' Tab #1: Criteria
+#' - Select Export Target: `SSURGO`
+#' - Choose desired map units, data map units, and components
+#' 
+#' Tabs #2 and #3: Interpretations and Notes
+#' - Select Interpretations to include in export
+#' - Select Text Notes to include in export
+#' 
+#' Tab #4: Run Export 
+#'  - Enter file name for ZIP
+#'  - Export run on server and result sent to e-mail associated with user
+#'  
+#' @param dsn 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+#' 
+fetchSSURGO_export <- function(dsn) {
+  # this should include Interpretation Ratings/Reasons as site level properties
+}
 
-### SETUP
-## In NASIS, go to Exports Explorer menu and Add New Export...
-## 
-## Tab #1: Criteria
-## - Select Export Target: SSURGO
-## - Choose desired map units, data map units, and components
-## 
-## Tabs #2 and #3: Interpretations and Notes
-## - Select Interpretations to include in export
-## - Select Text Notes to include in export
-## 
-## Tab #4: Run Export 
-##  - Enter file name for ZIP
-##  - Export run on server and result emailed to user
-## 
 
 #' Get Interpretation Rating "Reasons" from MS Access SSURGO Export
 #'
