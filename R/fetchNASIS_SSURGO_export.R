@@ -21,8 +21,32 @@
 #'
 #' @examples
 #' 
-fetchSSURGO_export <- function(dsn) {
-  # this should include Interpretation Ratings/Reasons as site level properties
+fetchSSURGOInterpExport <- function(dsn, rules = NULL) {
+  
+  # interpretations are unique to component
+  idcols <- c("lmapunitiid","coiid")
+  
+  # TODO: include low, high, low RV in addition to default "high RV"
+  rulecols <- c("mrulename","rating","class","reasons")
+ 
+  # using same logic as the get_SDA* methods for multi-rule results 
+  .cleanRuleColumnName <- function(x) gsub("[^A-Za-z0-9]", "", x)
+  ruleresult <-  lapply(rules,
+                        function(rule) {
+                          subres <- .get_SSURGO_export_interp_reasons_by_mrulename(dsn, rule)[, c(idcols, rulecols)]
+                          newcolnames <- colnames(subres)
+                          newcolnames[newcolnames %in% rulecols] <- paste0(newcolnames[newcolnames %in% rulecols],
+                                                                           "_", .cleanRuleColumnName(rule))
+                          colnames(subres) <- newcolnames
+                          subres
+                        })
+  
+  # left join each flattened rule result sequentially 
+  last <- ruleresult[[1]]
+  for (i in 2:length(ruleresult)) {
+    last <- merge(last, ruleresult[[i]], by = c("lmapunitiid", "coiid"))
+  }
+  last
 }
 
 
@@ -120,13 +144,16 @@ fetchSSURGO_export <- function(dsn) {
   # flatten the reasons so they are 1:1 with component, join to lookup tables 
   result <- as.data.frame(res[, list(mrulename = unique(mrulename),
                            cokeyref = unique(cokey), 
-                           Reasons = paste0(.SD[["interphrc"]][1:pmin(.N, n)], collapse = "; ")),
+                           reasons = paste0(.SD[["interphrc"]][1:pmin(.N, n)], collapse = "; ")),
                     by = c("lmapunitiid", "coiid")][res2, 
                                               on = c("lmapunitiid", "coiid")][high_rep_rating_class, 
                                                                         on = c("lmapunitiid","coiid")])
   
+  result$rating <- result$interphr
+  result$class <- result$interphrc
   # add mukey:lmapunitiid alias for convenience
   result$mukey <- result$lmapunitiid
   
   return(result)
 }
+
