@@ -14,7 +14,9 @@ fetchLDM(
     "lab_xray_and_thermal", "lab_calculations_including_estimates_and_default_values",
     "lab_rosetta_Key"),
   chunk.size = 1000,
-  ntries = 3
+  ntries = 3,
+  prep_code = "S",
+  analyzed_size_frac = "<2 mm"
 )
 }
 \arguments{
@@ -31,21 +33,23 @@ fetchLDM(
 \item{chunk.size}{number of pedons per chunk (for queries that may exceed \code{maxJsonLength})}
 
 \item{ntries}{number of tries (times to halve \code{chunk.size}) before returning \code{NULL}; default \code{3}}
+
+\item{prep_code}{Default: \code{"S"}. One or more of \code{"GP"}, \code{"M"}, \code{"N"}, or \code{"S"}}
+
+\item{analyzed_size_frac}{Default: \code{"<2 mm"}. One or more of \code{"<2 mm"}, \code{"0.02-0.05 mm"}, \code{"0.05-0.1 mm"}, \code{"1-2 mm"}, \code{"0.5-1 mm"}, \code{"0.25-0.5 mm"}, \code{"0.05-2 mm"}, \code{"0.02-2 mm"}, \code{"0.1-0.25 mm"}}
 }
 \value{
 a \code{SoilProfileCollection} for a successful query, a \code{try-error} if no site/pedon locations can be found or \code{NULL} for an empty \code{lab_layer} (within sites/pedons) result
 }
 \description{
-LDM model diagram:
+LDM model diagram: \url{https://jneme910.github.io/Lab_Data_Mart_Documentation/Documents/SDA_KSSL_Data_model.html}
 }
 \details{
-\itemize{
-\item https://jneme910.github.io/Lab_Data_Mart_Documentation/Documents/SDA_KSSL_Data_model.html
-}
-
 If the \code{chunk.size} parameter is set too large and the Soil Data Access request fails, the algorithm will re-try the query with a smaller (halved) \code{chunk.size} argument. This will be attempted up to 3 times before returning \code{NULL}
 
 Currently the \code{lab_area} tables are joined only for the "Soil Survey Area" related records.
+
+When multiple preparation codes (\code{prep_code}) or size fractions (\code{analyzed_size_frac}) are present \code{prep_code="S"} ("sieved") and \code{analyzed_size_frac="<2 mm"} are used by default to filter the layer data to attempt to produce a topologically valid (no overlaps) SoilProfileCollection. You may specify additional codes or fractions as needed, but note that this may cause "duplication" of some layers where repeated measures were made with different preparation or on fractionated samples
 }
 \examples{
 \donttest{
