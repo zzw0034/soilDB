@@ -34,7 +34,7 @@ fetchLDM(
 
 \item{ntries}{number of tries (times to halve \code{chunk.size}) before returning \code{NULL}; default \code{3}}
 
-\item{prep_code}{Default: \code{"S"}. One or more of \code{"GP"}, \code{"M"}, \code{"N"}, or \code{"S"}}
+\item{prep_code}{Default: \code{"S"}. One or more of \code{NA}, \code{"F"}, \code{"HM"}, \code{"HM_SK"} \code{"GP"}, \code{"M"}, \code{"N"}, or \code{"S"}}
 
 \item{analyzed_size_frac}{Default: \code{"<2 mm"}. One or more of \code{"<2 mm"}, \code{"0.02-0.05 mm"}, \code{"0.05-0.1 mm"}, \code{"1-2 mm"}, \code{"0.5-1 mm"}, \code{"0.25-0.5 mm"}, \code{"0.05-2 mm"}, \code{"0.02-2 mm"}, \code{"0.1-0.25 mm"}, \verb{"<0.002 mm}}
 }
@@ -49,21 +49,21 @@ If the \code{chunk.size} parameter is set too large and the Soil Data Access req
 
 Currently the \code{lab_area} tables are joined only for the "Soil Survey Area" related records.
 
-When requesting data from \code{"lab_mineralogy_glass_count"}, or \code{"lab_xray_and_thermal"} multiple preparation codes (\code{prep_code}) or size fractions (\code{analyzed_size_frac}) are present. The default behavoior of \code{fetchLDM()} is to attempt to return a topologically valid (minimal overlaps) SoilProfileCollection. This is achieved by setting \code{prep_code="S"} ("sieved") and \code{analyzed_size_frac="<2 mm"}. You may specify alternate or additional preparation codes or fractions as needed, but note that this may cause "duplication" of some layers where repeated measures were made with different preparation or on fractionated samples
+When requesting data from \code{"lab_major_and_trace_elements_and_oxides"}, \code{"lab_mineralogy_glass_count"}, or \code{"lab_xray_and_thermal"} multiple preparation codes (\code{prep_code}) or size fractions (\code{analyzed_size_frac}) are possible. The default behavior of \code{fetchLDM()} is to attempt to return a topologically valid (minimal overlaps) \emph{SoilProfileCollection}. This is achieved by setting \code{prep_code="S"} ("sieved") and \code{analyzed_size_frac="<2 mm"}. You may specify alternate or additional preparation codes or fractions as needed, but note that this may cause "duplication" of some layers where repeated measures were made with different preparation or on fractionated samples
 }
 \examples{
 \donttest{
 
 if(requireNamespace("curl") &
    curl::has_internet()) {
-   
+
   # fetch by ssa_key
   fetchLDM(8297, what = "ssa_key")
 
   # get physical properties for points correlated as taxonomic subgroup "Typic Argialbolls"
   fetchLDM("Typic Argialbolls", what = "corr_taxsubgrp", tables = "lab_physical_properties")
- 
-  # fetch by area_code (must be a soil survey area code for now; 
+
+  # fetch by area_code (must be a soil survey area code for now;
   #                      the lowest-level area that is always populated)
   fetchLDM("CA630", what = "area_code")
 }
