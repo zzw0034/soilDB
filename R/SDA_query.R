@@ -161,8 +161,28 @@ format_SQL_in_statement <- function(x) {
 #'   }
 #'  }
 #' }
-
 SDA_query <- function(q) {
+  .SDA_query(q)
+}
+
+.SDA_query_FOR_JSON_AUTO <- function(queries, convert = TRUE, query_string = FALSE) {
+  res <- lapply(queries, function(x) {
+    q <- sprintf("~DeclareVarchar(@json,max)~
+    ;WITH src (n) AS (%s FOR JSON AUTO)
+    SELECT @json = src.n
+    FROM src
+    SELECT @json, LEN(@json);", x)
+    if (query_string) return(q)
+    res <- .SDA_query(q)$V1
+    if (convert) return(jsonlite::fromJSON(res))
+    res
+  })
+  if (length(queries) == 1)
+    return(res[[1]])
+  res
+}
+
+.SDA_query <- function(q) {
 
   # check for required packages
   if (!requireNamespace('httr', quietly = TRUE) | !requireNamespace('jsonlite', quietly = TRUE))

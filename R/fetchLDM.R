@@ -15,7 +15,7 @@
 #' @param layer_type Default: `"horizon"`, `"layer"`, and `"reporting layer"`
 #' @param prep_code Default: `"S"` and `""`. May also include one or more of: `"F"`, `"HM"`, `"HM_SK"` `"GP"`, `"M"`, `"N"`, or `"S"`
 #' @param analyzed_size_frac Default: `"<2 mm"` and `""`. May also include one or more of: `"<2 mm"`, `"0.02-0.05 mm"`, `"0.05-0.1 mm"`, `"1-2 mm"`, `"0.5-1 mm"`, `"0.25-0.5 mm"`, `"0.05-2 mm"`, `"0.02-2 mm"`, `"0.1-0.25 mm"`, `"<0.002 mm"`
-#'
+#' @param query_string Default: `FALSE`; if `TRUE` return a character string containing query that would be sent to SDA via `SDA_query`
 #' @details If the `chunk.size` parameter is set too large and the Soil Data Access request fails, the algorithm will re-try the query with a smaller (halved) `chunk.size` argument. This will be attempted up to 3 times before returning `NULL`
 #'
 #' Currently the `lab_area` tables are joined only for the "Soil Survey Area" related records.
@@ -61,8 +61,8 @@ fetchLDM <- function(x,
            ntries = 3,
            layer_type = c("horizon","layer","reporting layer"),
            prep_code = c("S", ""), # , `"F"`, `"HM"`, `"HM_SK"` `"GP"`, `"M"`, `"N"`, or `"S"`
-           analyzed_size_frac = c("<2 mm", "")#  optional: "0.02-0.05 mm", "0.05-0.1 mm", "1-2 mm", "0.5-1 mm", "0.25-0.5 mm", "0.05-2 mm", "0.02-2 mm", "0.1-0.25 mm", "<0.002 mm"
-           ) {
+           analyzed_size_frac = c("<2 mm", ""),#  optional: "0.02-0.05 mm", "0.05-0.1 mm", "1-2 mm", "0.5-1 mm", "0.25-0.5 mm", "0.05-2 mm", "0.02-2 mm", "0.1-0.25 mm", "<0.002 mm"
+           query_string = FALSE) {
 
   # set up data source connection if needed
 
@@ -106,68 +106,175 @@ fetchLDM <- function(x,
   # get site/pedon/area information
   site_query <- sprintf(
     "SELECT * FROM lab_combine_nasis_ncss
-              LEFT JOIN lab_webmap ON
-                  lab_combine_nasis_ncss.pedon_key = lab_webmap.pedon_key
               LEFT JOIN lab_site ON
                   lab_combine_nasis_ncss.site_key = lab_site.site_key
               LEFT JOIN lab_pedon ON
                   lab_combine_nasis_ncss.site_key = lab_pedon.site_key
             WHERE LOWER(%s) IN %s",
     what, format_SQL_in_statement(tolower(x)))
+  # LEFT JOIN (SELECT wmiid, pedon_Key, peiid, Series, Soil_Classification, Primary_Lab_Report, Soil_web, lat, long FROM lab_webmap) AS lw ON
+  # lab_combine_nasis_ncss.pedon_key = lw.pedon_Key
+  
+  ## see note below about needing to cast lab_webmap to write to json
+  
 
-  if(inherits(con, 'DBIConnection')) {
+  #
+  # the lab_area table allows for overlap with many different area types
+  # for now we only offer the "ssa" (soil survey area) area_type
+  if (inherits(con, 'DBIConnection')) {
     # query con using (modified) site_query
     sites <- try(DBI::dbGetQuery(con,
-                                 gsub("\\blab_|\\blab_combine_", "",
-                                      gsub("lab_(site|pedon)", "nasis_\\1", site_query))))
+                                 gsub(
+                                   "\\blab_|\\blab_combine_",
+                                   "",
+                                   gsub("lab_(site|pedon)", "nasis_\\1", site_query)
+                                 )))
   } else {
-    # the lab_area table allows for overlap with many different area types
-    # for now we only offer the "ssa" (soil survey area) area_type 
-    site_query_ssaarea <- gsub("WHERE LOWER", 
-                       "LEFT JOIN lab_area ON
-                       lab_combine_nasis_ncss.ssa_key = lab_area.area_key
-                       WHERE LOWER", site_query)
-    sites <- SDA_query(site_query_ssaarea)
+    site_query <- gsub(
+      "WHERE LOWER",
+      "LEFT JOIN lab_area ON
+                         lab_combine_nasis_ncss.ssa_key = lab_area.area_key
+                         WHERE LOWER",
+      site_query
+    )
+    # sites <- .SDA_query_FOR_JSON_AUTO(site_query)
+    
+    # CANNOT include webmap with SELECT *
+    # Invalid query: FOR JSON cannot serialize CLR objects. Cast CLR types explicitly into one of the supported types in FOR JSON queries. 
   }
-
-  if (!inherits(sites, 'try-error')) {
+  
+  # if (!inherits(sites, 'try-error')) {
 
     # TODO: this shouldn't be needed
-    sites <- sites[,unique(colnames(sites))]
+    # sites <- sites[,unique(colnames(sites))]
 
     # get data for lab layers within pedon_key returned
-    hz <- .get_lab_layer_by_pedon_key(x = sites[[bycol]],
-                                      con = con,
-                                      bycol = bycol,
-                                      tables = tables,
-                                      layer_type = layer_type,
-                                      prep_code = prep_code,
-                                      analyzed_size_frac = analyzed_size_frac)
-
-    .do_chunk <- function(con, size) {
-      chunk.idx <- makeChunks(sites[[bycol]], size)
-      as.data.frame(data.table::rbindlist(lapply(unique(chunk.idx),
-                                                 function(i) {
-                                                   keys <- sites[[bycol]][chunk.idx == i]
-                                                   res <- .get_lab_layer_by_pedon_key(x = keys,
-                                                                                      con = con,
-                                                                                      bycol = bycol,
-                                                                                      tables = tables,
-                                                                                      prep_code = prep_code,
-                                                                                      analyzed_size_frac = analyzed_size_frac)
-                                                   if (inherits(res, 'try-error'))
-                                                     return(NULL)
-                                                   res
-                                                 })))
+    flattables <- c(
+      "lab_physical_properties",
+      "lab_chemical_properties",
+      "lab_calculations_including_estimates_and_default_values",
+      "lab_major_and_trace_elements_and_oxides",
+      "lab_rosetta_Key"
+    )
+    
+    fractables <- c("lab_mineralogy_glass_count",
+                    "lab_xray_and_thermal")
+    
+    tables <- match.arg(tables, c(flattables, fractables), several.ok = TRUE)
+    
+    fractablejoincriteria <- list(
+      "lab_mineralogy_glass_count" = "LEFT JOIN lab_mineralogy_glass_count ON
+                                      lab_layer.labsampnum = lab_mineralogy_glass_count.labsampnum",
+      
+      "lab_xray_and_thermal" = "LEFT JOIN lab_xray_and_thermal ON
+                                lab_layer.labsampnum = lab_xray_and_thermal.labsampnum"
+    )
+    
+    tablejoincriteria <- list(
+      "lab_physical_properties" = "LEFT JOIN lab_physical_properties ON
+                                   lab_layer.labsampnum = lab_physical_properties.labsampnum",
+      
+      "lab_chemical_properties" = "LEFT JOIN lab_chemical_properties ON
+                                   lab_layer.labsampnum = lab_chemical_properties.labsampnum",
+      
+      "lab_major_and_trace_elements_and_oxides" = "LEFT JOIN lab_major_and_trace_elements_and_oxides ON
+                                                   lab_layer.labsampnum = lab_major_and_trace_elements_and_oxides.labsampnum",
+      
+      "lab_calculations_including_estimates_and_default_values" = "LEFT JOIN lab_calculations_including_estimates_and_default_values ON
+       lab_layer.labsampnum = lab_calculations_including_estimates_and_default_values.labsampnum",
+      
+      "lab_rosetta_Key" = "LEFT JOIN lab_rosetta_Key ON
+                           lab_layer.layer_key = lab_rosetta_Key.layer_key"
+    )
+    
+    layer_type <- match.arg(layer_type, c("horizon", "layer", "reporting layer"), several.ok = TRUE)
+    
+    layer_query <-  gsub("WHERE LOWER", sprintf(
+      # "SELECT * FROM lab_layer %s WHERE lab_layer.layer_type IN %s AND %s IN %s AND %s",
+      "LEFT JOIN lab_layer ON lab_layer.pedon_key = lab_combine_nasis_ncss.pedon_key %s 
+      WHERE lab_layer.layer_type IN %s AND %s AND LOWER",
+      paste0(sapply(flattables[flattables %in% tables], function(a) tablejoincriteria[[a]]), collapse = "\n"),
+      format_SQL_in_statement(layer_type),
+      # bycol,
+      # format_SQL_in_statement(site[[bycol]]),
+      paste0(paste0(sapply(flattables[flattables %in% tables[tables != "lab_rosetta_Key"]], 
+                           function(b) paste0("IsNull(",b,".prep_code, '')")), 
+                    " IN ", format_SQL_in_statement(prep_code)), collapse= " AND ")), site_query)
+    
+    if (any(tables %in% fractables)) {
+      layer_fraction_query <-  sprintf(
+        "SELECT * FROM lab_layer %s WHERE lab_layer.layer_type IN %s AND %s IN %s AND %s AND %s",
+        paste0(sapply(fractables[fractables %in% tables], function(a) fractablejoincriteria[[a]]), collapse = "\n"),
+        format_SQL_in_statement(layer_type),
+        bycol,
+        format_SQL_in_statement(x),
+        paste0(paste0(sapply(fractables[fractables %in% tables], 
+                             function(b) paste0("IsNull(",b,".prep_code, '')")), 
+                      " IN ", format_SQL_in_statement(prep_code)), collapse= " AND "),
+        paste0(paste0(sapply(fractables[fractables %in% tables], 
+                             function(b) paste0("IsNull(",b,".analyzed_size_frac, '')")), 
+                      " IN ", format_SQL_in_statement(analyzed_size_frac)), collapse= " AND "))
+    } else {
+      layer_fraction_query <- NULL
     }
-
-    ntry <- 0
-    while ((inherits(hz, 'try-error') || is.null(hz)) && ntry < ntries) {
-      hz <- .do_chunk(con, size = chunk.size)
-      # repeat as long as there is a try error/NULL, halving chunk.size with each iteration
-      chunk.size <- pmax(floor(chunk.size / 2), 1)
-      ntry <- ntry + 1
+    
+    if(inherits(con, 'DBIConnection')) {
+      # query con using (modified) layer_query
+      return(try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_|_properties|_Key|_including_estimates_and_default_values|_and|mineralogy_|_count", "", gsub("major_and_trace_elements_and_oxides","geochemical",layer_query)))))
     }
+    
+    layerdata <- .SDA_query_FOR_JSON_AUTO(layer_query)
+    
+    # TODO: this shouldn't be needed
+    layerdata <- layerdata[,unique(colnames(layerdata))]
+    
+    if(!is.null(layer_fraction_query)) {
+      layerfracdata <- .SDA_query_FOR_JSON_AUTO(layer_fraction_query)
+      layerfracdata <- layerfracdata[,unique(colnames(layerfracdata))]
+      if (!inherits(layerdata, 'try-error') && !inherits(layerfracdata, 'try-error')) {
+        
+        if (nrow(layerfracdata) == 0)
+          message(sprintf('no fractionated samples found for selected prep_code (%s) and analyzed_size_frac (%s)',
+                          paste0(prep_code, collapse = ", "), paste0(analyzed_size_frac, collapse=", ")))
+        
+        layerdata <- merge(layerdata, layerfracdata[,c("labsampnum",
+                                                       colnames(layerfracdata)[!colnames(layerfracdata) %in% colnames(layerdata)])],
+                           by = "labsampnum", all.x = TRUE, incomparables = NA)
+      }
+    }
+    na.idx <- which(is.na(layerdata$prep_code))
+    if (length(na.idx) > 0)
+      layerdata$prep_code[na.idx] <- ""
+    
+    # short circuit: return query string
+    if (query_string)
+      return(list(sitequery = site_query, layerquery = layer_query, layerfractionquery = layer_fraction_query))
+  
+    hz <- layerdata
+    
+    # .do_chunk <- function(con, size) {
+    #   chunk.idx <- makeChunks(sites[[bycol]], size)
+    #   as.data.frame(data.table::rbindlist(lapply(unique(chunk.idx),
+    #                                              function(i) {
+    #                                                keys <- sites[[bycol]][chunk.idx == i]
+    #                                                res <- .get_lab_layer_by_pedon_key(x = keys,
+    #                                                                                   con = con,
+    #                                                                                   bycol = bycol,
+    #                                                                                   tables = tables,
+    #                                                                                   prep_code = prep_code,
+    #                                                                                   analyzed_size_frac = analyzed_size_frac)
+    #                                                if (inherits(res, 'try-error'))
+    #                                                  return(NULL)
+    #                                                res
+    #                                              })))
+    # }
+    # ntry <- 0
+    # while ((inherits(hz, 'try-error') || is.null(hz)) && ntry < ntries) {
+    #   hz <- .do_chunk(con, size = chunk.size)
+    #   # repeat as long as there is a try error/NULL, halving chunk.size with each iteration
+    #   chunk.size <- pmax(floor(chunk.size / 2), 1)
+    #   ntry <- ntry + 1
+    # }
 
     # close connection (if we opened it)
     if (is.character(dsn) && inherits(con, "DBIConnection")) {
@@ -194,10 +301,10 @@ fetchLDM <- function(x,
       return(NULL)
     }
 
-  } else {
-    # return try-error
-    return(sites)
-  }
+  # } else {
+  #   # return try-error
+  #   return(sites)
+  # }
 }
 
 .get_lab_layer_by_pedon_key <- function(x,
@@ -217,100 +324,10 @@ fetchLDM <- function(x,
                                         analyzed_size_frac = c("0.02-0.05 mm", "0.05-0.1 mm", "1-2 mm", 
                                                                "0.5-1 mm", "0.25-0.5 mm", "0.05-2 mm", 
                                                                "<2 mm", "0.02-2 mm", "0.1-0.25 mm", 
-                                                               "<0.002 mm")) {
+                                                               "<0.002 mm"),
+                                        query_string = FALSE) {
 
   
-  flattables <- c(
-    "lab_physical_properties",
-    "lab_chemical_properties",
-    "lab_calculations_including_estimates_and_default_values",
-    "lab_major_and_trace_elements_and_oxides",
-    "lab_rosetta_Key"
-  )
-
-  fractables <- c("lab_mineralogy_glass_count",
-                  "lab_xray_and_thermal")
-
-  tables <- match.arg(tables, c(flattables, fractables), several.ok = TRUE)
-
-  fractablejoincriteria <- list(
-      "lab_mineralogy_glass_count" = "LEFT JOIN lab_mineralogy_glass_count ON
-                                      lab_layer.labsampnum = lab_mineralogy_glass_count.labsampnum",
-
-      "lab_xray_and_thermal" = "LEFT JOIN lab_xray_and_thermal ON
-                                lab_layer.labsampnum = lab_xray_and_thermal.labsampnum"
-    )
-
-  tablejoincriteria <- list(
-      "lab_physical_properties" = "LEFT JOIN lab_physical_properties ON
-                                   lab_layer.labsampnum = lab_physical_properties.labsampnum",
-
-      "lab_chemical_properties" = "LEFT JOIN lab_chemical_properties ON
-                                   lab_layer.labsampnum = lab_chemical_properties.labsampnum",
-      
-      "lab_major_and_trace_elements_and_oxides" = "LEFT JOIN lab_major_and_trace_elements_and_oxides ON
-                                                   lab_layer.labsampnum = lab_major_and_trace_elements_and_oxides.labsampnum",
-      
-      "lab_calculations_including_estimates_and_default_values" = "LEFT JOIN lab_calculations_including_estimates_and_default_values ON
-       lab_layer.labsampnum = lab_calculations_including_estimates_and_default_values.labsampnum",
-
-      "lab_rosetta_Key" = "LEFT JOIN lab_rosetta_Key ON
-                           lab_layer.layer_key = lab_rosetta_Key.layer_key"
-    )
   
-  layer_type <- match.arg(layer_type, c("horizon", "layer", "reporting layer"), several.ok = TRUE)
-  
-  layer_query <-  sprintf(
-    "SELECT * FROM lab_layer %s WHERE lab_layer.layer_type IN %s AND %s IN %s AND %s",
-    paste0(sapply(flattables[flattables %in% tables], function(a) tablejoincriteria[[a]]), collapse = "\n"),
-    format_SQL_in_statement(layer_type),
-    bycol,
-    format_SQL_in_statement(x),
-    paste0(paste0(sapply(flattables[flattables %in% tables[tables != "lab_rosetta_Key"]], 
-                         function(b) paste0("IsNull(",b,".prep_code, '')")), 
-                  " IN ", format_SQL_in_statement(prep_code)), collapse= " AND "))
-
-  if (any(tables %in% fractables)) {
-    layer_fraction_query <-  sprintf(
-      "SELECT * FROM lab_layer %s WHERE lab_layer.layer_type IN %s AND %s IN %s AND %s AND %s",
-      paste0(sapply(fractables[fractables %in% tables], function(a) fractablejoincriteria[[a]]), collapse = "\n"),
-      format_SQL_in_statement(layer_type),
-      bycol,
-      format_SQL_in_statement(x),
-      paste0(paste0(sapply(fractables[fractables %in% tables], 
-                           function(b) paste0("IsNull(",b,".prep_code, '')")), 
-                    " IN ", format_SQL_in_statement(prep_code)), collapse= " AND "),
-      paste0(paste0(sapply(fractables[fractables %in% tables], 
-                         function(b) paste0("IsNull(",b,".analyzed_size_frac, '')")), 
-                  " IN ", format_SQL_in_statement(analyzed_size_frac)), collapse= " AND "))
-  } else {
-    layer_fraction_query <- NULL
-  }
-
-  if(inherits(con, 'DBIConnection')) {
-    # query con using (modified) layer_query
-    return(try(DBI::dbGetQuery(con, gsub("\\blab_|\\blab_combine_|_properties|_Key|_including_estimates_and_default_values|_and|mineralogy_|_count", "", gsub("major_and_trace_elements_and_oxides","geochemical",layer_query)))))
-  }
-
-  layerdata <- suppressWarnings(SDA_query(layer_query))
-
-  # TODO: this shouldn't be needed
-  layerdata <- layerdata[,unique(colnames(layerdata))]
-
-  if(!is.null(layer_fraction_query)) {
-    layerfracdata <- suppressWarnings(SDA_query(layer_fraction_query))
-    layerfracdata <- layerfracdata[,unique(colnames(layerfracdata))]
-    if (!inherits(layerdata, 'try-error') && !inherits(layerfracdata, 'try-error')) {
-
-      if (nrow(layerfracdata) == 0)
-        message(sprintf('no fractionated samples found for selected prep_code (%s) and analyzed_size_frac (%s)',
-                paste0(prep_code, collapse = ", "), paste0(analyzed_size_frac, collapse=", ")))
-
-      layerdata <- merge(layerdata, layerfracdata[,c("labsampnum",
-                                                     colnames(layerfracdata)[!colnames(layerfracdata) %in% colnames(layerdata)])],
-                         by = "labsampnum", all.x = TRUE, incomparables = NA)
-    }
-  }
-  layerdata$prep_code[is.na(layerdata$prep_code)] <- ""
   layerdata
 }
