@@ -293,7 +293,10 @@ fetchLDM <- function(x,
   }
 
   layerdata <- suppressWarnings(SDA_query(layer_query))
-
+  
+  if (inherits(layerdata, 'try-error'))
+    return(layerdata)
+  
   # TODO: this shouldn't be needed
   layerdata <- layerdata[,unique(colnames(layerdata))]
 
